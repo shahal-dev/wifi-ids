@@ -1,0 +1,191 @@
+# ===================================================================
+# WiFi IDS Multi-Model Configuration
+# Supports: Neural Networks (feedforward, lstm, cnn) & Tree Models (random_forest, xgboost)
+# Change 'architecture' to switch between models!
+# ===================================================================
+
+# WiFi IDS Configuration
+project_name: "wifi_ids_pytorch"
+experiment_name: "baseline_classifier"
+
+# Data Configuration
+data:
+  data_path: "/media/plato/shahal/ids/new_processed_common_features"
+  attack_types:
+    - "1.Deauth"
+    - "2.Disas"
+    - "3.(Re)Assoc"
+    - "4.Rogue_AP"
+    - "5.Krack"
+    - "6.Kr00k"
+    - "7.SSH"
+    - "8.Botnet"
+    - "9.Malware"
+    - "10.SQL_Injection"
+    - "11.SSDP"
+    - "12.Evil_Twin"
+    - "13.Website_spoofing"
+  num_features: 29
+  num_classes: 14
+  random_seed: 42
+  enable_sampling: false  # Set to false to use full dataset
+  sample_size: 1000000   # Only used if enable_sampling is true
+  
+  # Data preprocessing
+  preprocessing:
+    normalize: true
+    handle_missing: "drop"
+    feature_selection: false
+    balance_dataset: true
+    
+  # Train/Validation/Test split
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  
+  # Data preprocessing
+  normalize: true
+
+# Model Configuration
+model:
+  architecture: "feedforward"  # Options: feedforward, lstm, cnn, random_forest, xgboost
+  input_dim: 29        # Number of input features
+  num_classes: 14      # Number of output classes
+  hidden_dims: [512, 256, 128, 64]  # Hidden layer sizes (feedforward)
+  hidden_dim: 128                   # LSTM hidden dimension
+  num_layers: 2                     # LSTM number of layers
+  dropout: 0.2                      # Dropout rate
+  output_dim: 14
+  activation: "relu"
+  batch_norm: true
+  
+  # Tree Model Parameters (for random_forest, xgboost)
+  n_estimators: 100                 # Number of trees
+  max_depth: 10                     # Maximum tree depth (None for RF means unlimited)
+  min_samples_split: 2              # Min samples to split (RF only)
+  min_samples_leaf: 1               # Min samples per leaf (RF only)
+  learning_rate: 0.1                # Learning rate (XGBoost only)
+  subsample: 0.8                    # Row subsampling (XGBoost only)
+  colsample_bytree: 0.8             # Column subsampling (XGBoost only)
+
+# Training Configuration
+training:
+  batch_size: 2048
+  max_epochs: 100
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  optimizer: "adam"  # Options: adam, sgd, adamw
+  scheduler: "reduce_on_plateau"
+  patience: 5
+  min_delta: 0.001
+  early_stopping_patience: 5
+  
+  # Loss function
+  loss_function: "cross_entropy"  # Options: cross_entropy, focal_loss
+  use_class_weights: true
+  
+  # Regularization
+  l1_lambda: 0.0
+  l2_lambda: 0.0001
+
+# Validation and Metrics
+metrics:
+  - "accuracy"
+  - "precision"
+  - "recall"
+  - "f1_score"
+  - "confusion_matrix"
+  - "roc_auc"
+
+# Logging and Checkpointing
+logging:
+  log_level: "INFO"
+  log_dir: "logs"
+  tensorboard_dir: "logs/tensorboard"
+  wandb_project: "wifi_ids"
+  save_checkpoints: true
+  checkpoint_dir: "models/checkpoints"
+  save_top_k: 3
+  monitor_metric: "val_f1"
+  mode: "max"
+  use_tensorboard: true
+  use_wandb: false
+  log_every_n_steps: 20
+
+# Hardware Configuration
+hardware:
+  device: "auto"  # Changed from "cuda" to "auto" to let Lightning handle device selection
+  num_workers: 32
+  pin_memory: true
+  accelerator: "gpu"  # This is the key setting for GPU
+  devices: 1  # Added to specify number of GPUs to use
+  persistent_workers: true
+  prefetch_factor: 4
+
+# Reproducibility
+reproducibility:
+  seed: 42
+  deterministic: true
+  benchmark: false
+
+# Paths
+paths:
+  base_dir: "models"
+  log_dir: "logs"
+  results_dir: "results"
+  data_dir: "data"
+  # Model directories will be created as: {base_dir}/{architecture}/{timestamp}
+  # Example: models/cnn/20250613_123456/
+
+# ===================================================================
+# Quick Model Switching Examples:
+# 
+# 🧠 Neural Networks:
+#   architecture: "feedforward"  # Fast, good for tabular data
+#   architecture: "lstm"         # For sequential patterns
+#   architecture: "cnn"          # For local feature patterns
+# 
+# 🌳 Tree Models:
+#   architecture: "random_forest"  # Robust, interpretable, fast
+#   architecture: "xgboost"        # High performance, gradient boosting
+# 
+# 💡 Recommendations:
+#   - For speed: random_forest
+#   - For accuracy: xgboost or feedforward
+#   - For interpretability: random_forest
+#   - For complex patterns: feedforward or lstm
+# =================================================================== 
+
+xgboost:
+  max_depth: 6
+  learning_rate: 0.1
+  n_estimators: 1000
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 1
+  gamma: 0
+  reg_alpha: 0
+  reg_lambda: 1
+  tree_method: "gpu_hist"  # Enable GPU acceleration
+  gpu_id: 0  # Use first GPU
+  predictor: "gpu_predictor"  # Use GPU for predictions too
+
+tabnet:
+  n_d: 8  # Width of the decision prediction layer
+  n_a: 8  # Width of the attention embedding for each mask
+  n_steps: 3  # Number of steps in the architecture
+  gamma: 1.3  # Scaling factor for attention updates
+  n_independent: 2  # Number of independent GLU layers
+  n_shared: 2  # Number of shared GLU layers
+  lambda_sparse: 1e-3  # Sparsity regularization parameter
+  momentum: 0.3  # Momentum for batch normalization
+  mask_type: "entmax"  # Type of mask to use
+  optimizer_params:
+    lr: 0.02
+    weight_decay: 1e-5
+  scheduler_params:
+    patience: 10
+    min_lr: 1e-5
+  batch_size: 1024
+  max_epochs: 100
+  patience: 20  # Early stopping patience 
