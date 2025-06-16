@@ -11,7 +11,7 @@ import sys
 import argparse
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 # Add src to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -33,7 +33,7 @@ import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 
-from models.tabnet import WiFiIDSTabNet
+# TabNet is now integrated into src.models.classifier
 
 # Configure logging
 logging.basicConfig(
@@ -513,7 +513,7 @@ def train_random_forest_model(X_train, y_train, X_val, y_val, config: Dict[str, 
     return model
 
 
-def train_tabnet_model(X_train, y_train, X_val, y_val, config: Dict[str, Any]) -> WiFiIDSTabNet:
+def train_tabnet_model(X_train, y_train, X_val, y_val, config: Dict[str, Any], feature_names: List[str]) -> TreeBasedModel:
     """
     Train TabNet model with progress monitoring.
     
@@ -523,22 +523,24 @@ def train_tabnet_model(X_train, y_train, X_val, y_val, config: Dict[str, Any]) -
         X_val: Validation features
         y_val: Validation labels
         config: Configuration dictionary
+        feature_names: List of feature names
         
     Returns:
         Trained TabNet model
     """
     logger.info("Training TabNet model...")
     
-    # Create and train model
-    model = WiFiIDSTabNet(config)
+    # Create and train model using TreeBasedModel wrapper
+    model = TreeBasedModel(config)
     model.fit(X_train, y_train, X_val, y_val)
     
     # Log feature importances
-    feature_importances = model.get_feature_importances()
-    logger.info("Top 10 most important features:")
-    for i, (feature, importance) in enumerate(sorted(zip(feature_names, feature_importances), 
-                                                   key=lambda x: x[1], reverse=True)[:10]):
-        logger.info(f"{i+1}. {feature}: {importance:.4f}")
+    feature_importances = model.get_feature_importance()
+    if feature_importances is not None:
+        logger.info("Top 10 most important features:")
+        for i, (feature, importance) in enumerate(sorted(zip(feature_names, feature_importances), 
+                                                       key=lambda x: x[1], reverse=True)[:10]):
+            logger.info(f"{i+1}. {feature}: {importance:.4f}")
     
     return model
 
@@ -615,7 +617,7 @@ def main():
         
         # TabNet training
         elif config.model.architecture == 'tabnet':
-            model = train_tabnet_model(X_train, y_train, X_val, y_val, config)
+            model = train_tabnet_model(X_train, y_train, X_val, y_val, config, feature_names)
         
     else:
         raise ValueError(f"Unknown model architecture: {config.model.architecture}")
