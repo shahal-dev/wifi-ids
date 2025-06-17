@@ -10,7 +10,7 @@ experiment_name: "baseline_classifier"
 
 # Data Configuration
 data:
-  data_path: "/media/plato/shahal/ids/new_processed_common_features"
+  data_path: "/media/plato/shahal/ids/test_report_fix"
   attack_types:
     - "1.Deauth"
     - "2.Disas"
@@ -64,9 +64,15 @@ model:
   max_depth: 10                     # Maximum tree depth (None for RF means unlimited)
   min_samples_split: 2              # Min samples to split (RF only)
   min_samples_leaf: 1               # Min samples per leaf (RF only)
+  max_features: "sqrt"              # Max features per split (RF only) - sqrt, log2, or float
+  bootstrap: true                   # Bootstrap sampling (RF only)
   learning_rate: 0.1                # Learning rate (XGBoost only)
   subsample: 0.8                    # Row subsampling (XGBoost only)
   colsample_bytree: 0.8             # Column subsampling (XGBoost only)
+  min_child_weight: 1               # Min child weight (XGBoost only)
+  gamma: 0                          # Min split loss (XGBoost only)
+  reg_alpha: 0                      # L1 regularization (XGBoost only)
+  reg_lambda: 1                     # L2 regularization (XGBoost only)
 
 # Training Configuration
 training:
@@ -170,22 +176,3 @@ xgboost:
   gpu_id: 0  # Use first GPU
   predictor: "gpu_predictor"  # Use GPU for predictions too
 
-tabnet:
-  n_d: 8  # Width of the decision prediction layer
-  n_a: 8  # Width of the attention embedding for each mask
-  n_steps: 3  # Number of steps in the architecture
-  gamma: 1.3  # Scaling factor for attention updates
-  n_independent: 2  # Number of independent GLU layers
-  n_shared: 2  # Number of shared GLU layers
-  lambda_sparse: 1e-3  # Sparsity regularization parameter
-  momentum: 0.3  # Momentum for batch normalization
-  mask_type: "entmax"  # Type of mask to use
-  optimizer_params:
-    lr: 0.02
-    weight_decay: 1e-5
-  scheduler_params:
-    patience: 10
-    min_lr: 1e-5
-  batch_size: 1024
-  max_epochs: 100
-  patience: 20  # Early stopping patience 

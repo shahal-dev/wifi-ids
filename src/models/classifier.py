@@ -2,7 +2,7 @@
 WiFi Intrusion Detection System (IDS) Model Architectures
 
 This module contains the neural network architectures for WiFi intrusion detection,
-including feedforward, LSTM, CNN, and TabNet models built with PyTorch.
+including feedforward, LSTM, and CNN models built with PyTorch.
 """
 
 import torch
@@ -17,14 +17,6 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-# TabNet imports
-try:
-    from pytorch_tabnet.tab_model import TabNetClassifier
-    TABNET_AVAILABLE = True
-except ImportError:
-    TABNET_AVAILABLE = False
-    logger.warning("pytorch_tabnet not available. Install with: pip install pytorch-tabnet")
 
 
 class FeedForwardClassifier(nn.Module):
@@ -225,108 +217,6 @@ class CNNClassifier(nn.Module):
         return output
 
 
-class WiFiIDSTabNet(nn.Module):
-    """
-    TabNet classifier for WiFi intrusion detection.
-    
-    Uses TabNet architecture for interpretable deep learning on tabular data,
-    providing feature selection and high performance on structured datasets.
-    """
-    
-    def __init__(self, input_dim: int, output_dim: int, config: Dict[str, Any]):
-        super(TabNetClassifier, self).__init__()
-        
-        if not TABNET_AVAILABLE:
-            raise ImportError("pytorch_tabnet is required for TabNet model. Install with: pip install pytorch-tabnet")
-        
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.config = config
-        
-        # Extract TabNet hyperparameters from config
-        tabnet_config = config.get('tabnet', {})
-        
-        # Create TabNet model
-        self.tabnet_model = TabNetClassifier(
-            n_d=tabnet_config.get('n_d', 8),
-            n_a=tabnet_config.get('n_a', 8),
-            n_steps=tabnet_config.get('n_steps', 3),
-            gamma=tabnet_config.get('gamma', 1.3),
-            n_independent=tabnet_config.get('n_independent', 2),
-            n_shared=tabnet_config.get('n_shared', 2),
-            lambda_sparse=tabnet_config.get('lambda_sparse', 1e-3),
-            momentum=tabnet_config.get('momentum', 0.3),
-            mask_type=tabnet_config.get('mask_type', 'entmax'),
-            optimizer_fn=torch.optim.Adam,
-            optimizer_params=tabnet_config.get('optimizer_params', {'lr': 0.02}),
-            scheduler_fn=torch.optim.lr_scheduler.ReduceLROnPlateau,
-            scheduler_params=tabnet_config.get('scheduler_params', {'mode': 'min', 'patience': 10}),
-            verbose=0
-        )
-        
-        self.feature_importances_ = None
-        self.is_fitted = False
-        
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray, 
-            X_val: Optional[np.ndarray] = None, y_val: Optional[np.ndarray] = None):
-        """Train the TabNet model."""
-        logger.info("Training TabNet model...")
-        
-        tabnet_config = self.config.get('tabnet', {})
-        
-        eval_set = [(X_val, y_val)] if X_val is not None and y_val is not None else None
-        eval_name = ['val'] if eval_set else None
-        
-        self.tabnet_model.fit(
-            X_train=X_train,
-            y_train=y_train,
-            eval_set=eval_set,
-            eval_name=eval_name,
-            eval_metric=['accuracy'],
-            max_epochs=tabnet_config.get('max_epochs', 100),
-            patience=tabnet_config.get('patience', 20),
-            batch_size=tabnet_config.get('batch_size', 1024),
-            virtual_batch_size=128,
-            num_workers=0,
-            drop_last=False
-        )
-        
-        # Store feature importances
-        self.feature_importances_ = self.tabnet_model.feature_importances_
-        self.is_fitted = True
-        logger.info("TabNet training completed")
-        
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Make predictions using the trained model."""
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted before making predictions")
-        return self.tabnet_model.predict(X)
-    
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """Get probability predictions."""
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted before making predictions")
-        return self.tabnet_model.predict_proba(X)
-    
-    def get_feature_importances(self) -> Optional[np.ndarray]:
-        """Get feature importances from the trained model."""
-        return self.feature_importances_
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass (for compatibility with PyTorch Lightning)."""
-        # Convert to numpy for TabNet
-        if isinstance(x, torch.Tensor):
-            x_np = x.detach().cpu().numpy()
-        else:
-            x_np = x
-        
-        # Get predictions
-        proba = self.predict_proba(x_np)
-        
-        # Convert back to tensor
-        return torch.tensor(proba, device=x.device if isinstance(x, torch.Tensor) else 'cpu')
-
-
 def create_model(model_type: str, input_dim: int, output_dim: int, config: Dict[str, Any]) -> nn.Module:
     """
     Factory function to create model instances.
@@ -346,8 +236,7 @@ def create_model(model_type: str, input_dim: int, output_dim: int, config: Dict[
     model_map = {
         'feedforward': FeedForwardClassifier,
         'lstm': LSTMClassifier,
-        'cnn': CNNClassifier,
-        'tabnet': WiFiIDSTabNet
+        'cnn': CNNClassifier
     }
     
     if model_type not in model_map:
@@ -384,8 +273,6 @@ class TreeBasedModel:
             self._init_random_forest()
         elif self.model_type == 'xgboost':
             self._init_xgboost()
-        elif self.model_type == 'tabnet':
-            self._init_tabnet()
         else:
             raise ValueError(f"Unsupported tree model type: {self.model_type}")
     
@@ -426,30 +313,6 @@ class TreeBasedModel:
             enable_categorical=False
         )
     
-    def _init_tabnet(self):
-        """Initialize TabNet classifier."""
-        if not TABNET_AVAILABLE:
-            raise ImportError("pytorch_tabnet is required for TabNet model. Install with: pip install pytorch-tabnet")
-        
-        tabnet_config = self.config.get('tabnet', {})
-        
-        self.model = TabNetClassifier(
-            n_d=tabnet_config.get('n_d', 8),
-            n_a=tabnet_config.get('n_a', 8),
-            n_steps=tabnet_config.get('n_steps', 3),
-            gamma=tabnet_config.get('gamma', 1.3),
-            n_independent=tabnet_config.get('n_independent', 2),
-            n_shared=tabnet_config.get('n_shared', 2),
-            lambda_sparse=tabnet_config.get('lambda_sparse', 1e-3),
-            momentum=tabnet_config.get('momentum', 0.3),
-            mask_type=tabnet_config.get('mask_type', 'entmax'),
-            optimizer_fn=torch.optim.Adam,
-            optimizer_params=tabnet_config.get('optimizer_params', {'lr': 0.02}),
-            scheduler_fn=torch.optim.lr_scheduler.ReduceLROnPlateau,
-            scheduler_params=tabnet_config.get('scheduler_params', {'mode': 'min', 'patience': 10}),
-            verbose=0
-        )
-    
     def fit(self, X_train: np.ndarray, y_train: np.ndarray, 
             X_val: Optional[np.ndarray] = None, y_val: Optional[np.ndarray] = None):
         """
@@ -481,25 +344,6 @@ class TreeBasedModel:
                     eval_set=[(X_val, y_val)],
                     verbose=False
                 )
-        # For TabNet, use validation data if available
-        elif self.model_type == 'tabnet':
-            tabnet_config = self.config.get('tabnet', {})
-            eval_set = [(X_val, y_val)] if X_val is not None and y_val is not None else None
-            eval_name = ['val'] if eval_set else None
-            
-            self.model.fit(
-                X_train=X_train,
-                y_train=y_train,
-                eval_set=eval_set,
-                eval_name=eval_name,
-                eval_metric=['accuracy'],
-                max_epochs=tabnet_config.get('max_epochs', 100),
-                patience=tabnet_config.get('patience', 20),
-                batch_size=tabnet_config.get('batch_size', 1024),
-                virtual_batch_size=128,
-                num_workers=0,
-                drop_last=False
-            )
         else:
             self.model.fit(X_train, y_train)
         

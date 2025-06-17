@@ -11,6 +11,49 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class WiFiIDSArrayDataset(Dataset):
+    """
+    Efficient PyTorch Dataset that directly accepts preprocessed numpy arrays.
+    
+    This dataset is designed for already preprocessed data to avoid double preprocessing
+    and unnecessary file I/O operations.
+    """
+    
+    def __init__(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        transform: Optional[callable] = None
+    ):
+        """
+        Initialize the dataset with preprocessed arrays.
+        
+        Args:
+            X: Feature matrix (already normalized if needed)
+            y: Label vector (already encoded if needed)
+            transform: Optional transform to be applied on a sample
+        """
+        self.X = torch.FloatTensor(X)
+        self.y = torch.LongTensor(y)
+        self.transform = transform
+        
+        logger.info(f"ArrayDataset created: {len(self)} samples, {self.X.shape[1]} features")
+        
+    def __len__(self) -> int:
+        """Return the size of the dataset."""
+        return len(self.X)
+        
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get a sample from the dataset."""
+        sample = self.X[idx]
+        target = self.y[idx]
+        
+        if self.transform:
+            sample = self.transform(sample)
+            
+        return sample, target
+
+
 class WiFiIDSDataset(Dataset):
     """
     PyTorch Dataset for WiFi Intrusion Detection System data.
@@ -142,9 +185,9 @@ class WiFiIDSDataset(Dataset):
 
 
 def create_data_loaders(
-    train_dataset: WiFiIDSDataset,
-    val_dataset: WiFiIDSDataset,
-    test_dataset: WiFiIDSDataset,
+    train_dataset: Dataset,
+    val_dataset: Dataset,
+    test_dataset: Dataset,
     batch_size: int = 256,
     num_workers: int = 4,
     pin_memory: bool = True
@@ -188,4 +231,36 @@ def create_data_loaders(
         pin_memory=pin_memory
     )
     
-    return train_loader, val_loader, test_loader 
+    return train_loader, val_loader, test_loader
+
+
+def create_array_data_loaders(
+    X_train: np.ndarray, X_val: np.ndarray, X_test: np.ndarray,
+    y_train: np.ndarray, y_val: np.ndarray, y_test: np.ndarray,
+    batch_size: int = 256,
+    num_workers: int = 4,
+    pin_memory: bool = True
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Create DataLoaders directly from numpy arrays (efficient approach).
+    
+    Args:
+        X_train, X_val, X_test: Feature arrays (already preprocessed)
+        y_train, y_val, y_test: Label arrays (already encoded)
+        batch_size: Batch size for data loading
+        num_workers: Number of worker processes for data loading
+        pin_memory: Whether to pin memory for faster GPU transfer
+        
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader)
+    """
+    # Create efficient array-based datasets
+    train_dataset = WiFiIDSArrayDataset(X_train, y_train)
+    val_dataset = WiFiIDSArrayDataset(X_val, y_val)
+    test_dataset = WiFiIDSArrayDataset(X_test, y_test)
+    
+    # Create data loaders
+    return create_data_loaders(
+        train_dataset, val_dataset, test_dataset,
+        batch_size, num_workers, pin_memory
+    ) 

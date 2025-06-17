@@ -5,9 +5,18 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 import torchmetrics
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import (
+    classification_report, confusion_matrix, accuracy_score, 
+    precision_score, recall_score, f1_score, roc_auc_score,
+    roc_curve, precision_recall_curve, auc
+)
+from sklearn.preprocessing import label_binarize
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import json
+import os
 from typing import Dict, List, Optional, Tuple, Any
 import logging
 
@@ -91,6 +100,11 @@ class WiFiIDSLightningModule(pl.LightningModule):
         # Store predictions for detailed analysis
         self.test_predictions = []
         self.test_targets = []
+        self.test_probabilities = []
+        
+        # Training info for evaluation
+        self.training_start_time = None
+        self.training_end_time = None
         
         # Save hyperparameters
         self.save_hyperparameters(ignore=['model'])
@@ -182,6 +196,7 @@ class WiFiIDSLightningModule(pl.LightningModule):
         
         # Compute metrics
         preds = torch.argmax(logits, dim=1)
+        probs = torch.softmax(logits, dim=1)
         self.test_accuracy(preds, y)
         self.test_f1(preds, y)
         self.test_precision(preds, y)
@@ -190,6 +205,7 @@ class WiFiIDSLightningModule(pl.LightningModule):
         # Store predictions for detailed analysis
         self.test_predictions.extend(preds.cpu().numpy())
         self.test_targets.extend(y.cpu().numpy())
+        self.test_probabilities.extend(probs.cpu().numpy())
         
         # Log metrics
         self.log('test_loss', loss)
@@ -200,26 +216,328 @@ class WiFiIDSLightningModule(pl.LightningModule):
         
         return loss
         
+    def on_train_start(self) -> None:
+        """Called when training starts."""
+        import time
+        self.training_start_time = time.time()
+    
+    def on_train_end(self) -> None:
+        """Called when training ends."""
+        import time
+        self.training_end_time = time.time()
+    
     def on_test_epoch_end(self) -> None:
-        """Called at the end of test epoch."""
-        # Generate detailed classification report
-        if self.test_predictions and self.test_targets:
-            report = classification_report(
-                self.test_targets,
-                self.test_predictions,
-                target_names=self.class_names,
-                output_dict=True
-            )
+        """Called at the end of test epoch - comprehensive evaluation."""
+        if not (self.test_predictions and self.test_targets):
+            return
             
-            # Log per-class metrics
-            for class_name, metrics in report.items():
-                if isinstance(metrics, dict):
-                    for metric_name, value in metrics.items():
-                        self.log(f'test_{class_name}_{metric_name}', value)
-                        
-            # Generate confusion matrix
-            cm = confusion_matrix(self.test_targets, self.test_predictions)
-            self.log_confusion_matrix(cm)
+        # Convert to numpy arrays
+        y_pred = np.array(self.test_predictions)
+        y_true = np.array(self.test_targets)
+        y_probs = np.array(self.test_probabilities) if self.test_probabilities else None
+        
+        # Generate detailed classification report
+        report = classification_report(
+            y_true, y_pred, target_names=self.class_names, output_dict=True
+        )
+        
+        # Log per-class metrics
+        for class_name, metrics in report.items():
+            if isinstance(metrics, dict):
+                for metric_name, value in metrics.items():
+                    self.log(f'test_{class_name}_{metric_name}', value)
+        
+        # Get model directory from trainer
+        model_dir = None
+        if hasattr(self.trainer, 'checkpoint_callback') and self.trainer.checkpoint_callback:
+            model_dir = os.path.dirname(self.trainer.checkpoint_callback.dirpath)
+        elif hasattr(self.trainer, 'default_root_dir'):
+            model_dir = self.trainer.default_root_dir
+        
+        if model_dir:
+            # Calculate training time
+            training_time = None
+            if self.training_start_time and self.training_end_time:
+                training_time = self.training_end_time - self.training_start_time
+            
+            # Get validation accuracy
+            val_accuracy = None
+            if hasattr(self, 'trainer') and hasattr(self.trainer, 'logged_metrics'):
+                for key, value in self.trainer.logged_metrics.items():
+                    if 'val_acc' in key.lower():
+                        val_accuracy = float(value)
+                        break
+            
+            # Save comprehensive evaluation
+            self.save_comprehensive_evaluation(
+                y_true, y_pred, y_probs, model_dir, training_time, val_accuracy
+            )
+        
+        # Generate confusion matrix (existing functionality)
+        cm = confusion_matrix(y_true, y_pred)
+        self.log_confusion_matrix(cm)
+    
+    def save_comprehensive_evaluation(
+        self, y_true: np.ndarray, y_pred: np.ndarray, y_probs: Optional[np.ndarray],
+        model_dir: str, training_time: Optional[float] = None, val_accuracy: Optional[float] = None
+    ) -> None:
+        """Save comprehensive evaluation results with visualizations."""
+        logger.info("Saving comprehensive evaluation results...")
+        
+        # Calculate metrics
+        accuracy = accuracy_score(y_true, y_pred)
+        precision_macro = precision_score(y_true, y_pred, average='macro', zero_division=0)
+        precision_weighted = precision_score(y_true, y_pred, average='weighted', zero_division=0)
+        recall_macro = recall_score(y_true, y_pred, average='macro', zero_division=0)
+        recall_weighted = recall_score(y_true, y_pred, average='weighted', zero_division=0)
+        f1_macro = f1_score(y_true, y_pred, average='macro', zero_division=0)
+        f1_weighted = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+        
+        # Per-class metrics
+        precision_per_class = precision_score(y_true, y_pred, average=None, zero_division=0)
+        recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
+        f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
+        
+        # Classification report
+        class_report = classification_report(y_true, y_pred, target_names=self.class_names, output_dict=True)
+        
+        # Confusion matrix
+        cm = confusion_matrix(y_true, y_pred)
+        
+        # ROC AUC if probabilities available
+        roc_auc_macro = None
+        roc_auc_weighted = None
+        if y_probs is not None:
+            try:
+                roc_auc_macro = roc_auc_score(y_true, y_probs, average='macro', multi_class='ovr')
+                roc_auc_weighted = roc_auc_score(y_true, y_probs, average='weighted', multi_class='ovr')
+            except:
+                pass
+        
+        # Compile results
+        results = {
+            'model_name': self.__class__.__name__,
+            'model_architecture': getattr(self.model, '__class__', {}).get('__name__', 'Unknown'),
+            'training_time': training_time,
+            'test_accuracy': accuracy,
+            'validation_accuracy': val_accuracy,
+            'precision_macro': precision_macro,
+            'precision_weighted': precision_weighted,
+            'recall_macro': recall_macro,
+            'recall_weighted': recall_weighted,
+            'f1_macro': f1_macro,
+            'f1_weighted': f1_weighted,
+            'roc_auc_macro': roc_auc_macro,
+            'roc_auc_weighted': roc_auc_weighted,
+            'per_class_metrics': {
+                self.class_names[i]: {
+                    'precision': float(precision_per_class[i]),
+                    'recall': float(recall_per_class[i]),
+                    'f1_score': float(f1_per_class[i])
+                } for i in range(len(self.class_names))
+            },
+            'classification_report': class_report,
+            'confusion_matrix': cm.tolist(),
+            'hyperparameters': dict(self.hparams)
+        }
+        
+        # Save metrics to JSON
+        metrics_path = os.path.join(model_dir, "evaluation_metrics.json")
+        with open(metrics_path, 'w') as f:
+            json.dump(results, f, indent=2, default=str)
+        
+        # Save detailed classification report
+        report_path = os.path.join(model_dir, "classification_report.txt")
+        with open(report_path, 'w') as f:
+            f.write(f"Classification Report for {results['model_architecture']}\n")
+            f.write("=" * 50 + "\n\n")
+            f.write(classification_report(y_true, y_pred, target_names=self.class_names))
+            f.write(f"\n\nOverall Metrics:\n")
+            f.write(f"Test Accuracy: {accuracy:.4f}\n")
+            f.write(f"Validation Accuracy: {val_accuracy:.4f}\n" if val_accuracy else "")
+            f.write(f"Training Time: {training_time:.2f} seconds\n" if training_time else "")
+            f.write(f"Macro F1-Score: {f1_macro:.4f}\n")
+            f.write(f"Weighted F1-Score: {f1_weighted:.4f}\n")
+            if roc_auc_macro:
+                f.write(f"ROC AUC (Macro): {roc_auc_macro:.4f}\n")
+        
+        # Create visualizations
+        self.create_evaluation_plots(y_true, y_pred, y_probs, cm, model_dir, results)
+        
+        logger.info(f"Comprehensive evaluation saved to {model_dir}")
+        logger.info(f"Test Accuracy: {accuracy:.4f}")
+        logger.info(f"Macro F1-Score: {f1_macro:.4f}")
+        logger.info(f"Weighted F1-Score: {f1_weighted:.4f}")
+    
+    def create_evaluation_plots(
+        self, y_true: np.ndarray, y_pred: np.ndarray, y_probs: Optional[np.ndarray],
+        cm: np.ndarray, model_dir: str, results: dict
+    ) -> None:
+        """Create comprehensive evaluation plots."""
+        plt.style.use('default')
+        
+        # 1. Confusion Matrix Heatmap
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                    xticklabels=self.class_names, yticklabels=self.class_names)
+        plt.title(f'Confusion Matrix - {results["model_architecture"]}')
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig(os.path.join(model_dir, "confusion_matrix.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 2. Normalized Confusion Matrix
+        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(cm_normalized, annot=True, fmt='.3f', cmap='Blues',
+                    xticklabels=self.class_names, yticklabels=self.class_names)
+        plt.title(f'Normalized Confusion Matrix - {results["model_architecture"]}')
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig(os.path.join(model_dir, "confusion_matrix_normalized.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 3. Per-class Performance Bar Chart
+        precision_per_class = [results['per_class_metrics'][cls]['precision'] for cls in self.class_names]
+        recall_per_class = [results['per_class_metrics'][cls]['recall'] for cls in self.class_names]
+        f1_per_class = [results['per_class_metrics'][cls]['f1_score'] for cls in self.class_names]
+        
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # Precision
+        axes[0].bar(range(len(self.class_names)), precision_per_class)
+        axes[0].set_title('Precision per Class')
+        axes[0].set_xlabel('Classes')
+        axes[0].set_ylabel('Precision')
+        axes[0].set_xticks(range(len(self.class_names)))
+        axes[0].set_xticklabels(self.class_names, rotation=45, ha='right')
+        axes[0].set_ylim([0, 1])
+        
+        # Recall
+        axes[1].bar(range(len(self.class_names)), recall_per_class)
+        axes[1].set_title('Recall per Class')
+        axes[1].set_xlabel('Classes')
+        axes[1].set_ylabel('Recall')
+        axes[1].set_xticks(range(len(self.class_names)))
+        axes[1].set_xticklabels(self.class_names, rotation=45, ha='right')
+        axes[1].set_ylim([0, 1])
+        
+        # F1-Score
+        axes[2].bar(range(len(self.class_names)), f1_per_class)
+        axes[2].set_title('F1-Score per Class')
+        axes[2].set_xlabel('Classes')
+        axes[2].set_ylabel('F1-Score')
+        axes[2].set_xticks(range(len(self.class_names)))
+        axes[2].set_xticklabels(self.class_names, rotation=45, ha='right')
+        axes[2].set_ylim([0, 1])
+        
+        plt.suptitle(f'Per-Class Performance Metrics - {results["model_architecture"]}')
+        plt.tight_layout()
+        plt.savefig(os.path.join(model_dir, "per_class_metrics.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 4. ROC Curves (if probabilities available)
+        if y_probs is not None:
+            try:
+                plt.figure(figsize=(12, 8))
+                
+                # Convert labels to binary format for ROC curve
+                y_true_bin = label_binarize(y_true, classes=range(len(self.class_names)))
+                
+                # Plot ROC curve for each class
+                for i in range(len(self.class_names)):
+                    fpr, tpr, _ = roc_curve(y_true_bin[:, i], y_probs[:, i])
+                    roc_auc = auc(fpr, tpr)
+                    plt.plot(fpr, tpr, linewidth=2, 
+                            label=f'{self.class_names[i]} (AUC = {roc_auc:.3f})')
+                
+                plt.plot([0, 1], [0, 1], 'k--', linewidth=2)
+                plt.xlim([0.0, 1.0])
+                plt.ylim([0.0, 1.05])
+                plt.xlabel('False Positive Rate')
+                plt.ylabel('True Positive Rate')
+                plt.title(f'ROC Curves - {results["model_architecture"]}')
+                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                plt.tight_layout()
+                plt.savefig(os.path.join(model_dir, "roc_curves.png"), dpi=300, bbox_inches='tight')
+                plt.close()
+            except Exception as e:
+                logger.warning(f"Could not generate ROC curves: {e}")
+        
+        # 5. Model Summary Plot
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        
+        # Overall metrics comparison
+        metrics_names = ['Accuracy', 'Precision (Macro)', 'Recall (Macro)', 'F1 (Macro)']
+        metrics_values = [results['test_accuracy'], results['precision_macro'], 
+                         results['recall_macro'], results['f1_macro']]
+        
+        axes[0, 0].bar(metrics_names, metrics_values)
+        axes[0, 0].set_title('Overall Performance Metrics')
+        axes[0, 0].set_ylabel('Score')
+        axes[0, 0].set_ylim([0, 1])
+        for i, v in enumerate(metrics_values):
+            axes[0, 0].text(i, v + 0.01, f'{v:.3f}', ha='center', va='bottom')
+        
+        # Class distribution in test set
+        unique, counts = np.unique(y_true, return_counts=True)
+        class_counts = [counts[unique == i][0] if i in unique else 0 for i in range(len(self.class_names))]
+        
+        axes[0, 1].bar(range(len(self.class_names)), class_counts)
+        axes[0, 1].set_title('Test Set Class Distribution')
+        axes[0, 1].set_xlabel('Classes')
+        axes[0, 1].set_ylabel('Count')
+        axes[0, 1].set_xticks(range(len(self.class_names)))
+        axes[0, 1].set_xticklabels(self.class_names, rotation=45, ha='right')
+        
+        # Training info
+        info_text = f"Model: {results['model_architecture']}\n"
+        if results['training_time']:
+            info_text += f"Training Time: {results['training_time']:.2f}s\n"
+        info_text += f"Test Accuracy: {results['test_accuracy']:.4f}\n"
+        if results['validation_accuracy']:
+            info_text += f"Validation Accuracy: {results['validation_accuracy']:.4f}\n"
+        info_text += f"Total Test Samples: {len(y_true):,}\n"
+        info_text += f"Number of Classes: {len(self.class_names)}"
+        
+        axes[1, 0].text(0.1, 0.5, info_text, transform=axes[1, 0].transAxes,
+                       fontsize=12, verticalalignment='center',
+                       bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue"))
+        axes[1, 0].set_xlim([0, 1])
+        axes[1, 0].set_ylim([0, 1])
+        axes[1, 0].axis('off')
+        axes[1, 0].set_title('Model Information')
+        
+        # Top 5 and Bottom 5 performing classes
+        f1_with_names = list(zip(self.class_names, f1_per_class))
+        f1_sorted = sorted(f1_with_names, key=lambda x: x[1], reverse=True)
+        
+        top_5 = f1_sorted[:5]
+        bottom_5 = f1_sorted[-5:]
+        
+        top_names, top_scores = zip(*top_5)
+        bottom_names, bottom_scores = zip(*bottom_5)
+        
+        y_pos = np.arange(5)
+        axes[1, 1].barh(y_pos, top_scores, alpha=0.7, color='green', label='Top 5')
+        axes[1, 1].barh(y_pos - 0.4, bottom_scores, alpha=0.7, color='red', label='Bottom 5')
+        axes[1, 1].set_yticks(y_pos - 0.2)
+        axes[1, 1].set_yticklabels([f"{top_names[i]}\nvs\n{bottom_names[i]}" for i in range(5)])
+        axes[1, 1].set_xlabel('F1-Score')
+        axes[1, 1].set_title('Best vs Worst Performing Classes')
+        axes[1, 1].legend()
+        axes[1, 1].set_xlim([0, 1])
+        
+        plt.suptitle(f'Model Performance Summary - {results["model_architecture"]}', fontsize=16)
+        plt.tight_layout()
+        plt.savefig(os.path.join(model_dir, "model_summary.png"), dpi=300, bbox_inches='tight')
+        plt.close()
             
     def log_confusion_matrix(self, cm: np.ndarray) -> None:
         """Log confusion matrix."""
