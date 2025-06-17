@@ -4,11 +4,13 @@ A professional machine learning framework for detecting WiFi network attacks usi
 
 ## 🚀 Features
 
-- **Multiple Model Architectures**: FeedForward, LSTM, and CNN classifiers
-- **13 Attack Types**: Deauth, SQL_Injection, SSDP, Evil_Twin, Website_spoofing, Disas, (Re)Assoc, Rogue_AP, Krack, Kr00k, SSH, Botnet, Malware
-- **30 Network Features**: Frame, Radio/Physical Layer, and WLAN/802.11 features
+- **Complete Pipeline**: From raw AWID3 data to trained models
+- **Advanced Preprocessing**: Efficient data cleaning, balancing, and feature engineering
+- **Multiple Model Architectures**: Neural Networks (FeedForward, LSTM, CNN) & Tree Models (Random Forest, XGBoost)
+- **14 Attack Types**: Deauth, SQL_Injection, SSDP, Evil_Twin, Website_spoofing, Disas, (Re)Assoc, Rogue_AP, Krack, Kr00k, SSH, Botnet, Malware, Normal
+- **29 Network Features**: Carefully selected Frame, Radio/Physical Layer, and WLAN/802.11 features
 - **Production-Ready Training**: PyTorch Lightning with automatic checkpointing, early stopping, and logging
-- **Comprehensive Evaluation**: Confusion matrices, ROC curves, per-class metrics
+- **Comprehensive Evaluation**: Confusion matrices, ROC curves, per-class metrics, feature importance
 - **Professional Structure**: Industry-standard ML project organization
 
 ## 📁 Project Structure
@@ -58,16 +60,181 @@ pip install -r requirements.txt
 Edit `configs/config.yaml` to point to your data directory:
 ```yaml
 data:
-  raw_data_path: "../new_processed_balanced_common_features"
+  data_path: "/path/to/your/processed/data"
+```
+
+## 📊 Data Preprocessing
+
+Before training models, you need to preprocess the raw AWID3 dataset. The preprocessing script handles data cleaning, feature engineering, balancing, and format conversion.
+
+### Prerequisites
+
+The preprocessing script expects raw AWID3 data organized by attack type:
+```
+raw_awid3_data/
+├── 1.Deauth/
+├── 2.Disas/
+├── 3.(Re)Assoc/
+├── 4.Rogue_AP/
+├── 5.Krack/
+├── 6.Kr00k/
+├── 7.SSH/
+├── 8.Botnet/
+├── 9.Malware/
+├── 10.SQL_Injection/
+├── 11.SSDP/
+├── 12.Evil_Twin/
+├── 13.Website_spoofing/
+└── Normal/
+```
+
+### Running the Preprocessing Script
+
+```bash
+# Basic usage - process all attack types
+python awid3_preprocessor.py \
+  --input_dir /path/to/raw/awid3/data \
+  --output_dir /path/to/processed/output \
+  --max_samples_per_class 100000
+
+# Process specific attack types only
+python awid3_preprocessor.py \
+  --input_dir /path/to/raw/awid3/data \
+  --output_dir /path/to/processed/output \
+  --attack_types "Deauth,Disas,Normal" \
+  --max_samples_per_class 50000
+
+# Enable data balancing (recommended)
+python awid3_preprocessor.py \
+  --input_dir /path/to/raw/awid3/data \
+  --output_dir /path/to/processed/output \
+  --max_samples_per_class 100000 \
+  --balance_data
+
+# Custom feature selection
+python awid3_preprocessor.py \
+  --input_dir /path/to/raw/awid3/data \
+  --output_dir /path/to/processed/output \
+  --feature_file custom_features.txt \
+  --max_samples_per_class 100000
+```
+
+### Preprocessing Options
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--input_dir` | Path to raw AWID3 data directory | Required |
+| `--output_dir` | Path for processed output | Required |
+| `--max_samples_per_class` | Maximum samples per attack type | 100000 |
+| `--attack_types` | Comma-separated list of attack types | All types |
+| `--balance_data` | Enable data balancing across classes | False |
+| `--feature_file` | Custom feature list file | None |
+| `--chunk_size` | Processing chunk size for memory efficiency | 10000 |
+| `--n_jobs` | Number of parallel processing jobs | -1 (all cores) |
+
+### Output Structure
+
+The preprocessing script generates:
+```
+processed_output/
+├── 1.Deauth_processed.csv
+├── 2.Disas_processed.csv
+├── ... (one file per attack type)
+├── label_mapping.txt          # Label encoding reference
+├── feature_list.txt           # Selected features
+├── preprocessing_stats.json   # Processing statistics
+└── data_summary.txt          # Dataset summary
+```
+
+### Key Features
+
+- **🚀 Efficient Processing**: Folder-by-folder processing with memory optimization
+- **⚖️ Data Balancing**: Optional balancing across attack types
+- **🎯 Feature Selection**: 29 carefully selected network traffic features
+- **🔄 Consistent Encoding**: Alphabetical label encoding for reproducibility
+- **📊 Comprehensive Logging**: Detailed statistics and progress tracking
+- **💾 Memory Efficient**: Chunked processing for large datasets
+
+### Feature Engineering
+
+The preprocessor automatically handles:
+- **Missing Value Imputation**: Median imputation for numerical features
+- **Feature Scaling**: Optional standardization
+- **Label Encoding**: Consistent alphabetical encoding
+- **Data Type Optimization**: Efficient data types for memory usage
+- **Outlier Detection**: Optional outlier removal
+
+### Example Usage
+
+```bash
+# Complete preprocessing pipeline
+python awid3_preprocessor.py \
+  --input_dir /media/plato/shahal/ids/raw_awid3 \
+  --output_dir /media/plato/shahal/ids/processed_balanced \
+  --max_samples_per_class 100000 \
+  --balance_data \
+  --chunk_size 50000
+
+# This will process all 14 attack types and generate balanced dataset
+# Output: ~1.4M samples total (100K per class)
+# Processing time: ~30-60 minutes depending on hardware
+```
+
+### Monitoring Progress
+
+The script provides real-time progress updates:
+```
+📊 Processing folder: 1.Deauth
+  ✅ Loaded 150,000 samples
+  🎯 Sampled 100,000 samples  
+  💾 Saved to processed_output/1.Deauth_processed.csv
+  ⏱️  Processing time: 45.2 seconds
+
+📊 Processing folder: 2.Disas
+  ✅ Loaded 89,000 samples
+  🎯 Using all 89,000 samples
+  💾 Saved to processed_output/2.Disas_processed.csv
+  ⏱️  Processing time: 32.1 seconds
 ```
 
 ## 🎯 Quick Start
 
-### 1. Training a Model
+### 1. Preprocess Your Data
+
+First, preprocess the raw AWID3 dataset:
+```bash
+python awid3_preprocessor.py \
+  --input_dir /path/to/raw/awid3/data \
+  --output_dir /path/to/processed/output \
+  --max_samples_per_class 100000 \
+  --balance_data
+```
+
+Then update the data path in `configs/config.yaml`:
+```yaml
+data:
+  data_path: "/path/to/processed/output"
+```
+
+### 2. Training a Model
 
 Train a FeedForward classifier:
 ```bash
 python scripts/train.py --config configs/config.yaml
+```
+
+Train different model types:
+```bash
+# Random Forest (fastest)
+python scripts/train.py --model random_forest
+
+# XGBoost (high performance)
+python scripts/train.py --model xgboost
+
+# Neural Networks
+python scripts/train.py --model feedforward
+python scripts/train.py --model lstm
+python scripts/train.py --model cnn
 ```
 
 Resume from checkpoint:
@@ -75,14 +242,14 @@ Resume from checkpoint:
 python scripts/train.py --config configs/config.yaml --checkpoint models/checkpoints/last.ckpt
 ```
 
-### 2. Monitor Training
+### 3. Monitor Training
 
 Launch TensorBoard to monitor training progress:
 ```bash
 tensorboard --logdir logs/
 ```
 
-### 3. Evaluate Model
+### 4. Evaluate Model
 
 Evaluate a trained model:
 ```bash
