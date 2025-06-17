@@ -34,9 +34,9 @@ class FeedForwardClassifier(nn.Module):
         self.output_dim = output_dim
         
         # Extract hyperparameters from config
-        hidden_sizes = config.get('hidden_sizes', [256, 128, 64])
-        dropout_rate = config.get('dropout_rate', 0.3)
-        use_batch_norm = config.get('use_batch_norm', True)
+        hidden_sizes = config.get('hidden_sizes', config.get('hidden_dims', [256, 128, 64]))
+        dropout_rate = config.get('dropout_rate', config.get('dropout', 0.3))
+        use_batch_norm = config.get('use_batch_norm', config.get('batch_norm', True))
         activation = config.get('activation', 'relu')
         
         # Build the network layers
@@ -89,9 +89,9 @@ class LSTMClassifier(nn.Module):
         self.output_dim = output_dim
         
         # Extract hyperparameters
-        hidden_size = config.get('hidden_size', 128)
+        hidden_size = config.get('hidden_size', config.get('hidden_dim', 128))
         num_layers = config.get('num_layers', 2)
-        dropout_rate = config.get('dropout_rate', 0.3)
+        dropout_rate = config.get('dropout_rate', config.get('dropout', 0.3))
         bidirectional = config.get('bidirectional', True)
         
         self.hidden_size = hidden_size
@@ -160,7 +160,7 @@ class CNNClassifier(nn.Module):
         # Extract hyperparameters
         num_filters = config.get('num_filters', [64, 128, 256])
         kernel_sizes = config.get('kernel_sizes', [3, 5, 7])
-        dropout_rate = config.get('dropout_rate', 0.3)
+        dropout_rate = config.get('dropout_rate', config.get('dropout', 0.3))
         pool_size = config.get('pool_size', 2)
         
         # Ensure we have matching number of filters and kernel sizes

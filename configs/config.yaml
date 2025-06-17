@@ -51,13 +51,24 @@ model:
   architecture: "feedforward"  # Options: feedforward, lstm, cnn, random_forest, xgboost
   input_dim: 29        # Number of input features
   num_classes: 14      # Number of output classes
+  output_dim: 14       # Same as num_classes
+  
+  # FeedForward Neural Network Parameters
   hidden_dims: [512, 256, 128, 64]  # Hidden layer sizes (feedforward)
-  hidden_dim: 128                   # LSTM hidden dimension
-  num_layers: 2                     # LSTM number of layers
-  dropout: 0.2                      # Dropout rate
-  output_dim: 14
-  activation: "relu"
-  batch_norm: true
+  activation: "relu"                 # Activation function: relu, tanh, leaky_relu
+  batch_norm: true                   # Use batch normalization
+  dropout: 0.2                       # Dropout rate
+  
+  # LSTM Parameters
+  hidden_dim: 128                    # LSTM hidden dimension
+  hidden_size: 128                   # Alternative name for hidden_dim
+  num_layers: 2                      # Number of LSTM layers
+  bidirectional: true                # Use bidirectional LSTM
+  
+  # CNN Parameters
+  num_filters: [64, 128, 256]        # Number of filters per conv layer
+  kernel_sizes: [3, 5, 7]            # Kernel sizes for conv layers
+  pool_size: 2                       # MaxPool kernel size
   
   # Tree Model Parameters (for random_forest, xgboost)
   n_estimators: 100                 # Number of trees
